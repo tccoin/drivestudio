@@ -13,7 +13,7 @@ from tools.eval import do_evaluation
 from utils.misc import import_str
 from utils.backup import backup_project
 from utils.logging import MetricLogger, setup_logging
-from models.video_utils import render_images, save_videos
+from models.video_utils import render_images, save_videos, render_novel_views_multi_cam
 from datasets.driving_dataset import DrivingDataset
 
 logger = logging.getLogger()
@@ -290,8 +290,9 @@ def main(args):
 
         #----------------------------------------------------------------------------
         #----------------------------     Saving     --------------------------------
+        save_ckpt_freq = max(1, trainer.num_iters // 5)  # same as video: every N/5 steps
         do_save = step > 0 and (
-            (step % cfg.logging.saveckpt_freq == 0) or (step == trainer.num_iters)
+            (step % save_ckpt_freq == 0) or (step == trainer.num_iters)
         ) and (args.resume_from is None)
         if do_save:  
             trainer.save_checkpoint(
@@ -299,6 +300,58 @@ def main(args):
                 save_only_model=True,
                 is_final=step == trainer.num_iters,
             )
+
+        #----------------------------------------------------------------------------
+        #---------------------  Video every N/5 steps (original + elevated)  ---------
+        video_freq = max(1, trainer.num_iters // 5)
+        if step > 0 and step % video_freq == 0:
+            logger.info("Rendering videos (full-set + elevated 2m tilt 15°)...")
+            videos_dir = os.path.join(cfg.log_dir, "videos")
+            os.makedirs(videos_dir, exist_ok=True)
+            trainer.set_eval()
+            with torch.no_grad():
+                # 1) Full-set video along original trajectory
+                render_results = render_images(
+                    trainer=trainer,
+                    dataset=dataset.full_image_set,
+                    compute_metrics=False,
+                    compute_error_map=False,
+                )
+                full_set_path = os.path.join(videos_dir, f"full_set_{step}.mp4")
+                save_videos(
+                    render_results,
+                    full_set_path,
+                    layout=dataset.layout,
+                    num_timestamps=dataset.num_img_timesteps,
+                    keys=render_keys,
+                    num_cams=dataset.pixel_source.num_cams,
+                    save_seperate_video=cfg.logging.save_seperate_video,
+                    fps=cfg.render.fps,
+                    verbose=True,
+                    save_images=False,
+                )
+                logger.info(f"Saved {full_set_path}")
+                del render_results
+                torch.cuda.empty_cache()
+                # 2) Elevated 2m + tilt down 15° trajectory video (multi-cam, same layout as full_set)
+                per_cam_trajectories = dataset.get_elevated_tilt_trajectories_multi_cam(
+                    elevation_m=2.0, tilt_deg=-15.0
+                )
+                elevated_path = os.path.join(videos_dir, f"elevated_2m_tilt15_{step}.mp4")
+                render_novel_views_multi_cam(
+                    trainer,
+                    dataset,
+                    per_cam_trajectories,
+                    elevated_path,
+                    layout=dataset.layout,
+                    keys=render_keys,
+                    num_cams=dataset.pixel_source.num_cams,
+                    fps=cfg.render.fps,
+                    save_seperate_video=cfg.logging.save_seperate_video,
+                    verbose=True,
+                )
+                logger.info(f"Saved elevated multi-cam videos (elevated_2m_tilt15_{step}_*.mp4)")
+            torch.cuda.empty_cache()
         
         #----------------------------------------------------------------------------
         #------------------------    Cache Image Error    ---------------------------

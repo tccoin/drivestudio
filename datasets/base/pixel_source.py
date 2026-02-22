@@ -1,4 +1,4 @@
-from typing import Dict, Tuple, List, Callable
+from typing import Dict, Tuple, List, Callable, Optional
 from omegaconf import OmegaConf
 import os
 import abc
@@ -1067,30 +1067,46 @@ class ScenePixelSource(abc.ABC):
         """
         return self.data_cfg.sampler.buffer_downscale
     
-    def prepare_novel_view_render_data(self, dataset_type: str, traj: torch.Tensor) -> list:
+    def prepare_novel_view_render_data(
+        self,
+        dataset_type: str,
+        traj: torch.Tensor,
+        cam_id: Optional[int] = None,
+        frame_start_index: Optional[int] = None,
+        total_frames: Optional[int] = None,
+    ) -> list:
         """
         Prepare all necessary elements for novel view rendering.
 
         Args:
             dataset_type (str): Type of dataset
             traj (torch.Tensor): Novel view trajectory, shape (N, 4, 4)
+            cam_id (int, optional): Which camera's intrinsics to use. If None, use default (0 or 1 for argoverse).
 
         Returns:
             list: List of dicts, each containing elements required for rendering a single frame:
                 - cam_infos: Camera information (extrinsics, intrinsics, image dimensions)
                 - image_infos: Image-related information (indices, normalized time, viewdirs, etc.)
         """
-        if dataset_type == "argoverse":
-            cam_id = 1  # Use cam_id 1 for Argoverse dataset
-        else:
-            cam_id = 0  # Use cam_id 0 for other datasets
+        if cam_id is None:
+            if dataset_type == "argoverse":
+                cam_id = 1  # Use cam_id 1 for Argoverse dataset
+            else:
+                cam_id = 0  # Use cam_id 0 for other datasets
         
         intrinsics = self.camera_data[cam_id].intrinsics[0]  # Assume intrinsics are constant across frames
         H, W = self.camera_data[cam_id].HEIGHT, self.camera_data[cam_id].WIDTH
         
         original_frame_count = self.num_frames
-        scaled_indices = torch.linspace(0, original_frame_count - 1, len(traj))
-        normed_time = torch.linspace(0, 1, len(traj))
+        if frame_start_index is not None and total_frames is not None:
+            # Single-frame or slice: use given time range so dynamic content varies with t
+            scaled_indices = torch.arange(
+                frame_start_index, frame_start_index + len(traj), dtype=torch.float32, device=self.device
+            )
+            normed_time = scaled_indices / max(1, total_frames - 1)
+        else:
+            scaled_indices = torch.linspace(0, original_frame_count - 1, len(traj), device=self.device)
+            normed_time = torch.linspace(0, 1, len(traj), device=self.device)
         
         render_data = []
         for i in range(len(traj)):
@@ -1110,6 +1126,8 @@ class ScenePixelSource(abc.ABC):
                 "intrinsics": intrinsics,
                 "height": torch.tensor([H], dtype=torch.long, device=self.device),
                 "width": torch.tensor([W], dtype=torch.long, device=self.device),
+                "cam_name": self.camera_data[cam_id].cam_name,
+                "cam_id": torch.tensor([cam_id], dtype=torch.long, device=self.device),
             }
             
             image_infos = {

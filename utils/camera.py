@@ -2,10 +2,41 @@
 import os
 import torch
 import numpy as np
-from typing import Dict
+from typing import Dict, List
 
 from scipy.spatial.transform import Slerp
 from scipy.spatial.transform import Rotation as R
+
+
+def elevate_and_tilt_trajectory(
+    poses: torch.Tensor,
+    elevation_m: float = 2.0,
+    tilt_deg: float = -15.0,
+    world_up_axis: int = 2,
+) -> torch.Tensor:
+    """
+    Transform camera-to-world poses: elevate by elevation_m along world up, then tilt down by |tilt_deg|.
+
+    Args:
+        poses: (N, 4, 4) camera-to-world matrices.
+        elevation_m: meters to add along world up (default 2m).
+        tilt_deg: degrees to rotate camera view (negative = look down, default -15°).
+        world_up_axis: 0=X, 1=Y, 2=Z (default 2 for Z-up).
+
+    Returns:
+        (N, 4, 4) transformed camera-to-world poses.
+    """
+    out = poses.clone()
+    # Elevate: translate along world up
+    up = torch.zeros(3, device=poses.device, dtype=poses.dtype)
+    up[world_up_axis] = elevation_m
+    out[:, :3, 3] = poses[:, :3, 3] + up
+    # Tilt: in camera space, rotate around camera X (right); negative tilt_deg = look down
+    deg = np.deg2rad(tilt_deg)
+    c, s = np.cos(deg), np.sin(deg)
+    Rx = torch.tensor([[1, 0, 0], [0, c, -s], [0, s, c]], device=poses.device, dtype=poses.dtype)
+    out[:, :3, :3] = poses[:, :3, :3] @ Rx
+    return out
 
 def interpolate_poses(key_poses: torch.Tensor, target_frames: int) -> torch.Tensor:
     """
@@ -55,6 +86,39 @@ def look_at_rotation(direction: torch.Tensor, up: torch.Tensor = torch.tensor([0
     rotation_matrix = torch.stack([right, up, -front], dim=-1)
     return rotation_matrix
 
+def elevated_2m_tilt15(
+    dataset_type: str,
+    per_cam_poses: Dict[int, torch.Tensor],
+    original_frames: int,
+    target_frames: int,
+    elevation_m: float = 2.0,
+    tilt_deg: float = -15.0,
+) -> torch.Tensor:
+    """Same as original front-camera trajectory but elevated by 2m and tilted down 15° (tilt_deg=-15)."""
+    assert 0 in per_cam_poses.keys(), "Front center camera (ID 0) is required for elevated_2m_tilt15"
+    traj = per_cam_poses[0]  # (original_frames, 4, 4)
+    out = elevate_and_tilt_trajectory(traj, elevation_m=elevation_m, tilt_deg=tilt_deg)
+    if target_frames != original_frames:
+        out = interpolate_poses(out, target_frames)
+    return out
+
+
+def get_elevated_tilt_trajectories_multi_cam(
+    per_cam_poses: Dict[int, torch.Tensor],
+    elevation_m: float = 2.0,
+    tilt_deg: float = -15.0,
+) -> List[torch.Tensor]:
+    """
+    Apply elevate + tilt to each camera's trajectory. Returns one (T, 4, 4) tensor per camera,
+    in ascending cam_id order (e.g. [traj_cam0, traj_cam1, traj_cam2]).
+    """
+    cam_ids = sorted(per_cam_poses.keys())
+    return [
+        elevate_and_tilt_trajectory(per_cam_poses[cid], elevation_m=elevation_m, tilt_deg=tilt_deg)
+        for cid in cam_ids
+    ]
+
+
 def get_interp_novel_trajectories(
     dataset_type: str,
     scene_idx: str,
@@ -67,7 +131,8 @@ def get_interp_novel_trajectories(
     trajectory_generators = {
         "front_center_interp": front_center_interp,
         "s_curve": s_curve,
-        "three_key_poses": three_key_poses_trajectory
+        "three_key_poses": three_key_poses_trajectory,
+        "elevated_2m_tilt15": elevated_2m_tilt15,
     }
     
     if traj_type not in trajectory_generators:

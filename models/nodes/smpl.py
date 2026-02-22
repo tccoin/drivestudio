@@ -463,6 +463,9 @@ class SMPLNodes(RigidNodes):
         if knn_reg is not None:
             K = self.ctrl_cfg.knn_neighbors
             instances_mask = self.instances_fv[self.cur_frame]
+            # nn_ind is not in checkpoint; recompute when missing (e.g. after resume)
+            if not hasattr(self, "nn_ind") or self.nn_ind is None:
+                self.update_knn(self._means)
             nn_ind = self.nn_ind[instances_mask] # (num_instances, smpl_points_num, knn_neighbors)
             
             if not self.ctrl_cfg.freeze_shs_dc:

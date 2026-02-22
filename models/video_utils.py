@@ -459,7 +459,107 @@ def render_novel_views(trainer, render_data: list, save_path: str, fps: int = 30
             writer.append_data(rgb_uint8)
     
     writer.close()
-    print(f"Video saved to {save_path}")
+    logger.info(f"Video saved to {save_path}")
+
+
+def render_novel_views_multi_cam(
+    trainer: BasicTrainer,
+    dataset,
+    per_cam_trajectories: list,
+    save_pth: str,
+    layout: Callable,
+    keys: List[str],
+    num_cams: int = 3,
+    fps: int = 16,
+    save_seperate_video: bool = True,
+    verbose: bool = True,
+) -> None:
+    """
+    Render novel views along multiple camera trajectories (e.g. elevated+tilt per cam),
+    then save using the same multi-cam layout as full_set (timestamp-major: t0_c0, t0_c1, t0_c2, t1_c0, ...).
+
+    per_cam_trajectories: list of (T, 4, 4) tensors, one per camera.
+    Prepares one frame at a time to avoid GPU OOM after full_set render.
+    """
+    trainer.set_eval()
+    torch.cuda.empty_cache()
+    T = len(per_cam_trajectories[0])
+    green_background = torch.tensor([0.0, 177, 64]) / 255.0
+
+    # Build render data per-frame per-cam to avoid OOM (do not pre-build 3*T frames on GPU)
+    rgbs, Background_rgbs, RigidNodes_rgbs, DeformableNodes_rgbs, SMPLNodes_rgbs, Dynamic_rgbs = [], [], [], [], [], []
+    cam_names = []
+
+    with torch.no_grad():
+        for t in trange(T, desc="render elevated multi-cam", dynamic_ncols=True):
+            for c in range(num_cams):
+                # Single-frame trajectory; pass time t so dynamic content (vehicles, humans) varies per frame
+                traj_slice = per_cam_trajectories[c][t : t + 1]
+                frame_data = dataset.prepare_novel_view_render_data(
+                    traj_slice, cam_id=c, frame_start_index=t, total_frames=T
+                )[0]
+                for k, v in frame_data["cam_infos"].items():
+                    frame_data["cam_infos"][k] = v.cuda(non_blocking=True) if isinstance(v, Tensor) else v
+                for k, v in frame_data["image_infos"].items():
+                    frame_data["image_infos"][k] = v.cuda(non_blocking=True) if isinstance(v, Tensor) else v
+
+                results = trainer(
+                    image_infos=frame_data["image_infos"],
+                    camera_infos=frame_data["cam_infos"],
+                    novel_view=True,
+                )
+                for k, v in results.items():
+                    if isinstance(v, Tensor) and "rgb" in k:
+                        results[k] = v.clamp(0.0, 1.0)
+
+                rgb = results["rgb"]
+                rgbs.append(get_numpy(rgb))
+                cam_names.append(frame_data["cam_infos"]["cam_name"])
+
+                green_background = green_background.to(rgb.device)
+                if "Background_rgb" in results:
+                    bg_rgb = results["Background_rgb"] * results["Background_opacity"] + green_background * (1 - results["Background_opacity"])
+                    Background_rgbs.append(get_numpy(bg_rgb))
+                if "RigidNodes_rgb" in results:
+                    rn_rgb = results["RigidNodes_rgb"] * results["RigidNodes_opacity"] + green_background * (1 - results["RigidNodes_opacity"])
+                    RigidNodes_rgbs.append(get_numpy(rn_rgb))
+                if "DeformableNodes_rgb" in results:
+                    dn_rgb = results["DeformableNodes_rgb"] * results["DeformableNodes_opacity"] + green_background * (1 - results["DeformableNodes_opacity"])
+                    DeformableNodes_rgbs.append(get_numpy(dn_rgb))
+                if "SMPLNodes_rgb" in results:
+                    smpl_rgb = results["SMPLNodes_rgb"] * results["SMPLNodes_opacity"] + green_background * (1 - results["SMPLNodes_opacity"])
+                    SMPLNodes_rgbs.append(get_numpy(smpl_rgb))
+                if "Dynamic_rgb" in results:
+                    dyn_rgb = results["Dynamic_rgb"] * results["Dynamic_opacity"] + green_background * (1 - results["Dynamic_opacity"])
+                    Dynamic_rgbs.append(get_numpy(dyn_rgb))
+
+    render_results = {
+        "rgbs": rgbs,
+        "cam_names": cam_names,
+    }
+    if Background_rgbs:
+        render_results["Background_rgbs"] = Background_rgbs
+    if RigidNodes_rgbs:
+        render_results["RigidNodes_rgbs"] = RigidNodes_rgbs
+    if DeformableNodes_rgbs:
+        render_results["DeformableNodes_rgbs"] = DeformableNodes_rgbs
+    if SMPLNodes_rgbs:
+        render_results["SMPLNodes_rgbs"] = SMPLNodes_rgbs
+    if Dynamic_rgbs:
+        render_results["Dynamic_rgbs"] = Dynamic_rgbs
+
+    save_videos(
+        render_results,
+        save_pth,
+        layout=layout,
+        num_timestamps=T,
+        keys=keys,
+        num_cams=num_cams,
+        save_seperate_video=save_seperate_video,
+        fps=fps,
+        verbose=verbose,
+        save_images=False,
+    )
 
 
 def save_concatenated_videos(

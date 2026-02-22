@@ -1,8 +1,32 @@
 import argparse
 import os
 import subprocess
+import sys
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import List
+
+# Project root (parent of datasets/waymo/)
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _check_auth_warnings() -> None:
+    """Warn if env may override gcloud user auth and cause 401 for Waymo."""
+    creds = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+    if creds:
+        print(
+            "warning: GOOGLE_APPLICATION_CREDENTIALS is set; gsutil will use it instead of "
+            "gcloud user credentials. This often causes 401 for Waymo Open Dataset. "
+            "If you see 401, run: unset GOOGLE_APPLICATION_CREDENTIALS",
+            file=sys.stderr,
+        )
+    boto = os.environ.get("BOTO_CONFIG")
+    if boto:
+        print(
+            "info: BOTO_CONFIG is set; if you see 401, ensure it does not point to credentials "
+            "without Waymo access.",
+            file=sys.stderr,
+        )
 
 
 def download_file(filename, target_dir, source):
@@ -59,6 +83,8 @@ def download_files(
 
 
 if __name__ == "__main__":
+    os.chdir(_REPO_ROOT)
+    _check_auth_warnings()
     print("note: `gcloud auth login` is required before running this script")
     print("Downloading Waymo dataset from Google Cloud Storage...")
     parser = argparse.ArgumentParser()
@@ -76,12 +102,13 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
     os.makedirs(args.target_dir, exist_ok=True)
-    total_list = open("data/waymo_train_list.txt", "r").readlines()
+    train_list_path = _REPO_ROOT / "data" / "waymo_train_list.txt"
+    total_list = train_list_path.read_text().splitlines()
     if args.split_file is None:
         file_names = [total_list[i].strip() for i in args.scene_ids]
     else:
-        # parse the split file
-        split_file = open(args.split_file, "r").readlines()[1:]
-        scene_ids = [int(line.strip().split(",")[0]) for line in split_file]
+        split_path = _REPO_ROOT / args.split_file
+        split_lines = split_path.read_text().splitlines()[1:]  # skip header
+        scene_ids = [int(line.strip().split(",")[0]) for line in split_lines]
         file_names = [total_list[i].strip() for i in scene_ids]
     download_files(file_names, args.target_dir)

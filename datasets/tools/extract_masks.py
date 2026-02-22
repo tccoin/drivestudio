@@ -46,7 +46,7 @@ dataset_classes_in_sematic = {
 
 if __name__ == "__main__":
     import os
-    import imageio
+    import imageio.v2 as imageio  # v2 keeps current imread/imwrite behavior (avoids ImageIO v3 deprecation)
     import numpy as np
     from glob import glob
     from tqdm import tqdm

@@ -1,4 +1,4 @@
-from typing import Dict, Union, Literal
+from typing import Dict, Union, Literal, Optional
 import logging
 import os
 import cv2
@@ -15,7 +15,7 @@ from datasets.base.scene_dataset import SceneDataset
 from datasets.base.split_wrapper import SplitWrapper
 from utils.visualization import get_layout
 from utils.geometry import transform_points
-from utils.camera import get_interp_novel_trajectories
+from utils.camera import get_interp_novel_trajectories, get_elevated_tilt_trajectories_multi_cam
 from utils.misc import export_points_to_ply, import_str
 
 logger = logging.getLogger()
@@ -742,17 +742,40 @@ class DrivingDataset(SceneDataset):
         
         return novel_trajs
 
-    def prepare_novel_view_render_data(self, traj: torch.Tensor) -> list:
+    def get_elevated_tilt_trajectories_multi_cam(
+        self,
+        elevation_m: float = 2.0,
+        tilt_deg: float = -15.0,
+    ) -> list:
+        """Return list of (T, 4, 4) trajectories, one per camera (same order as camera_list), elevated and tilted."""
+        per_cam_poses = {
+            cam_id: self.pixel_source.camera_data[cam_id].cam_to_worlds
+            for cam_id in self.pixel_source.camera_list
+        }
+        return get_elevated_tilt_trajectories_multi_cam(
+            per_cam_poses, elevation_m=elevation_m, tilt_deg=tilt_deg
+        )
+
+    def prepare_novel_view_render_data(
+        self,
+        traj: torch.Tensor,
+        cam_id: Optional[int] = None,
+        frame_start_index: Optional[int] = None,
+        total_frames: Optional[int] = None,
+    ) -> list:
             """
             Prepare all necessary elements for novel view rendering.
 
             Args:
                 traj (torch.Tensor): Novel view trajectory, shape (N, 4, 4)
+                cam_id (int, optional): Which camera's intrinsics to use.
+                frame_start_index (int, optional): Global time index of the first frame (for correct dynamic content).
+                total_frames (int, optional): Total number of timesteps (used with frame_start_index for normed_time).
 
             Returns:
-                list: List of dicts, each containing elements required for rendering a single frame:
-                    - cam_infos: Camera information (extrinsics, intrinsics, image dimensions)
-                    - image_infos: Image-related information (indices, normalized time, viewdirs, etc.)
+                list: List of dicts, each containing elements required for rendering a single frame.
             """
-            # Call the PixelSource's method
-            return self.pixel_source.prepare_novel_view_render_data(self.type, traj)
+            return self.pixel_source.prepare_novel_view_render_data(
+                self.type, traj, cam_id=cam_id,
+                frame_start_index=frame_start_index, total_frames=total_frames,
+            )
