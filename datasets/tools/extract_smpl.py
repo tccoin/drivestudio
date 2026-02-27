@@ -31,7 +31,7 @@ class HMR2Predictor(HMR2018Predictor):
         from third_party.Humans4D.hmr2.models import download_models, load_hmr2
 
         # Download and load checkpoints
-        download_models()
+        # download_models()
         model, _ = load_hmr2()
 
         self.model = model

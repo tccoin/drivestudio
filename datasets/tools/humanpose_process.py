@@ -1,4 +1,11 @@
-from typing import List, Callable
+import torch
+from omegaconf import DictConfig, ListConfig
+from omegaconf.base import ContainerMetadata
+from omegaconf.nodes import AnyNode
+from typing import List, Callable, Any
+# Add basic Python types and Omegaconf types to safe globals
+torch.serialization.add_safe_globals([DictConfig, ListConfig, ContainerMetadata, AnyNode, Any, dict, list, set, str, int, float, bool])
+
 import os
 import joblib
 import logging
@@ -52,6 +59,9 @@ def extract_humanpose(
     )
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Data converter arg parser")
+    parser.parse_args = lambda: parser.parse_known_args()[0] # Fallback for unexpected args
+    
     parser = argparse.ArgumentParser(description="Data converter arg parser")
     parser.add_argument("--data_root", type=str, required=True, help="root path of waymo dataset")
     parser.add_argument("--dataset", type=str, default="waymo", help="dataset name")
@@ -138,4 +148,6 @@ if __name__ == "__main__":
             logger.info(f"Finished processing scene {scene_id}")
         except Exception as e:
             logger.error(f"Error processing scene {scene_id}: {e}")
+            import traceback
+            traceback.print_exc()
             continue
