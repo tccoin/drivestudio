@@ -502,7 +502,8 @@ class BasicTrainer(nn.Module):
     def backward(self, loss_dict: Dict[str, torch.Tensor]) -> None:
         # ----------------- backward ----------------
         total_loss = sum(loss for loss in loss_dict.values())
-        self.grad_scaler.scale(total_loss).backward()
+        # retain_graph=True so postprocess_per_train_step can read self.info["means2d"].grad after backward
+        self.grad_scaler.scale(total_loss).backward(retain_graph=True)
         self.optimizer_step()
         
         scale = self.grad_scaler.get_scale()

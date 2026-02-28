@@ -29,6 +29,14 @@ def _check_auth_warnings() -> None:
         )
 
 
+def _gsutil_env():
+    """Env for gsutil so it uses gcloud user credentials (avoid 401 with Waymo when GOOGLE_APPLICATION_CREDENTIALS is set)."""
+    env = os.environ.copy()
+    env.pop("GOOGLE_APPLICATION_CREDENTIALS", None)
+    env.pop("BOTO_CONFIG", None)
+    return env
+
+
 def download_file(filename, target_dir, source):
     result = subprocess.run(
         [
@@ -40,6 +48,7 @@ def download_file(filename, target_dir, source):
         ],
         capture_output=True,  # To capture stderr and stdout for detailed error information
         text=True,
+        env=_gsutil_env(),
     )
 
     # Check the return code of the gsutil command
@@ -79,12 +88,33 @@ def download_files(
                 future.result()
                 print(f"[{counter}/{total_files}] Downloaded successfully!")
             except Exception as e:
-                print(f"[{counter}/{total_files}] Failed to download. Error: {e}")
+                err = str(e)
+                print(f"[{counter}/{total_files}] Failed to download. Error: {err}")
+                if "401" in err or "Anonymous" in err:
+                    print(
+                        "401 fix: (1) Run  gcloud config set pass_credentials_to_gsutil true  "
+                        "(2) Register at https://waymo.com/open and ensure this Google account has access.",
+                        file=sys.stderr,
+                    )
+
+
+def _ensure_gsutil_uses_gcloud_creds() -> None:
+    """So gsutil uses gcloud auth (otherwise you get 401 Anonymous caller)."""
+    try:
+        subprocess.run(
+            ["gcloud", "config", "set", "pass_credentials_to_gsutil", "true"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
 
 
 if __name__ == "__main__":
     os.chdir(_REPO_ROOT)
     _check_auth_warnings()
+    _ensure_gsutil_uses_gcloud_creds()
     print("note: `gcloud auth login` is required before running this script")
     print("Downloading Waymo dataset from Google Cloud Storage...")
     parser = argparse.ArgumentParser()

@@ -1,11 +1,21 @@
 import torch
+from omegaconf import DictConfig, ListConfig
+from omegaconf.base import ContainerMetadata
+from omegaconf.nodes import AnyNode
+from typing import List, Callable, Any
+
+# Add basic Python types and Omegaconf types to safe globals
+if hasattr(torch.serialization, 'add_safe_globals'):
+    torch.serialization.add_safe_globals([DictConfig, ListConfig, ContainerMetadata, AnyNode, Any, dict, list, set, str, int, float, bool])
+
+# Fallback for older torch versions or environments where weights_only is strict
 orig_load = torch.load
 def patched_load(*args, **kwargs):
     if "weights_only" not in kwargs:
         kwargs["weights_only"] = False
     return orig_load(*args, **kwargs)
 torch.load = patched_load
-from typing import List, Callable
+
 import os
 import joblib
 import logging
@@ -145,4 +155,6 @@ if __name__ == "__main__":
             logger.info(f"Finished processing scene {scene_id}")
         except Exception as e:
             logger.error(f"Error processing scene {scene_id}: {e}")
+            import traceback
+            traceback.print_exc()
             continue
