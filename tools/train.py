@@ -290,7 +290,7 @@ def main(args):
 
         #----------------------------------------------------------------------------
         #----------------------------     Saving     --------------------------------
-        save_ckpt_freq = max(1, trainer.num_iters // 5)  # same as video: every N/5 steps
+        save_ckpt_freq = max(3000, trainer.num_iters // 5)  # same as video: every N/5 steps
         do_save = step > 0 and (
             (step % save_ckpt_freq == 0) or (step == trainer.num_iters)
         ) and (args.resume_from is None)
@@ -304,7 +304,7 @@ def main(args):
         #----------------------------------------------------------------------------
         #---------------------  Video every N/5 steps (original + elevated)  ---------
         video_freq = max(500, trainer.num_iters // 5)
-        if step > 0 and step % video_freq == 0:
+        if (step > 0 and step % video_freq == 0) or (step == trainer.num_iters):
             logger.info("Rendering videos (full-set + elevated 2m tilt 15°)...")
             videos_dir = os.path.join(cfg.log_dir, "videos")
             os.makedirs(videos_dir, exist_ok=True)
