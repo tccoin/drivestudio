@@ -187,3 +187,5 @@ cython_debug/
 #.idea/
 local_scripts
 logs
+work_dirs/
+data/
