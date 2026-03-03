@@ -12,7 +12,7 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
     import os
     os.makedirs(folder, exist_ok=True)
     download_files = {
-        "hmr2_data.tar.gz"      : ["https://www.cs.utexas.edu/~pavlakos/4dhumans/hmr2_data.tar.gz", folder],
+        "hmr2_data.tar.gz"      : ["https://people.eecs.berkeley.edu/~jathushan/projects/4dhumans/hmr2_data.tar.gz", folder],
     }
 
     for file_name, url in download_files.items():
@@ -81,5 +81,5 @@ def load_hmr2(checkpoint_path=DEFAULT_CHECKPOINT):
     # Ensure SMPL model exists
     check_smpl_exists()
 
-    model = HMR2.load_from_checkpoint(checkpoint_path, strict=False, cfg=model_cfg)
+    model = HMR2.load_from_checkpoint(checkpoint_path, strict=False, cfg=model_cfg, weights_only=False)
     return model, model_cfg

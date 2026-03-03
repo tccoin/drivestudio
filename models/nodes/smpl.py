@@ -86,7 +86,7 @@ class SMPLNodes(RigidNodes):
         self.instances_fv    = instances_fv                            # (num_frame, num_instances)
     
         self.template = SMPLTemplate(
-            smpl_model_path="smpl_models/SMPL_NEUTRAL.pkl",
+            smpl_model_path="/content/models/smpl/SMPL_NEUTRAL.pkl",
             num_human=smpl_betas.shape[0],
             init_beta=smpl_betas,
             cano_pose_type="da_pose",

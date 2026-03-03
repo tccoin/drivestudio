@@ -303,7 +303,7 @@ def main(args):
 
         #----------------------------------------------------------------------------
         #---------------------  Video every N/5 steps (original + elevated)  ---------
-        video_freq = max(1, trainer.num_iters // 5)
+        video_freq = max(500, trainer.num_iters // 5)
         if step > 0 and step % video_freq == 0:
             logger.info("Rendering videos (full-set + elevated 2m tilt 15°)...")
             videos_dir = os.path.join(cfg.log_dir, "videos")
